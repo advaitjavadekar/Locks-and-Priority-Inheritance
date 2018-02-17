@@ -1,0 +1,107 @@
+#include <xinu.h>
+
+uint32 prstart;
+pi_lock_t l1;
+pi_lock_t l2;
+
+void p1(){
+	int x;
+	kprintf("\nP1 is starting with priority %d at %d\n",proctab[currpid].prprio,ctr1000);
+	while(ctr1000-prstart<10)       //0 ms after start
+		x++;
+	pi_lock(&l1);                 //100 ms after start l1 has been acquired by p1
+	while(ctr1000-prstart<2000){	
+		x++;                  //Around 300 ms P1  inherits priority of p2 and starts running again to finish l1 task
+  		kprintf("\nP1 has acquired lock l1 and is running with priority %d at %d\n",proctab[currpid].prprio,ctr1000);
+	}
+	kprintf("\nP1 is unlocking lock l1\n");	
+	pi_unlock(&l1);		        //Starts running again around 80ms
+	kill(currpid);
+}
+
+void p2(){
+	int x;
+	kprintf("\nP2 is starting with priority %d at %d\n",proctab[currpid].prprio,ctr1000);
+	while(ctr1000-prstart<30)   //About 200 ms after start p2 preempts p1 and starts; runs for 10ms
+		x++;
+	pi_lock(&l2);               //About 300 ms p2 acquires l2
+	while(ctr1000-prstart<8000){	
+		x++;
+		kprintf("\nP2 has acquired lock l2 and is running with priority %d at %d\n",proctab[currpid].prprio,ctr1000);
+		pi_lock(&l1);       //tries to acquire l1 immediately but fails; l1 is with p1; p2 sent to waitlist of l1
+
+		while(ctr1000-prstart<5000){
+			kprintf("\nP2 has acquired lock l1 and is running with priority %d at %d\n",proctab[currpid].prprio,ctr1000);
+			x++;
+		}
+		kprintf("\nP2 is unlocking lock l1\n");
+		pi_unlock(&l1);
+	}
+	kprintf("\nP2 is unlocking lock l2\n");
+	pi_unlock(&l2);
+	while(ctr1000-prstart<15000){
+		kprintf("\nP2 is running with priority %d at %d\n",proctab[currpid].prprio,ctr1000);
+		x++;
+	}
+	kill(currpid);
+}
+
+void p3(){
+	int x;                       //About 400 ms p3 spawned with prio 6 starts running preempts others
+	kprintf("\nP3 is starting with priority %d at %d\n",proctab[currpid].prprio,ctr1000);
+	while(ctr1000-prstart<500)     //Till about 600ms will run as the highest priority process requiring no locks
+		x++;
+	kill(currpid);	
+}
+
+void p4(){
+	int x;
+	kprintf("\nP4 is starting with priority %d at %d\n",proctab[currpid].prprio,ctr1000);
+	while(ctr1000-prstart<20){     //At 600 ms p4 spawned starts running
+		x++;
+		kprintf("\nP4 is running with priority %d at %d\n",proctab[currpid].prprio,ctr1000);
+	}
+	pi_lock(&l2);		    //At 800ms tries to acquire lock l2 but cannot it is locked by P2	
+	while(ctr1000-prstart<10000){
+		x++;
+		kprintf("\nP4 has acquired lock l2 and is running with priority %d at %d\n",proctab[currpid].prprio,ctr1000);
+	}
+	kprintf("\nP4 is unlocking lock l2\n");
+	pi_unlock(&l2);
+}
+  
+process	main(void)
+{
+  
+  pi_init(&l1);
+  pi_init(&l2);
+	
+  prstart=ctr1000;
+  resume(create(p1,1024,2,"p1",0));
+  sleepms(20);	
+  resume(create(p2,1024,4,"p2",0));
+  sleepms(20);
+  resume(create(p3,1024,6,"p3",0));
+  sleepms(20);
+  resume(create(p4,1024,8,"p4",0));
+  sleepms(50000);	
+	
+
+  /* DEFAULT PROGRAM TO START SHELL */
+  /* Run the Xinu shell */
+
+	recvclr();
+	resume(create(shell, 8192, 50, "shell", 1, CONSOLE));
+
+	/* Wait for shell to exit and recreate it */
+
+	while (TRUE) {
+		receive();
+		sleepms(200);
+		kprintf("\n\nMain process recreating shell\n\n");
+		resume(create(shell, 4096, 20, "shell", 1, CONSOLE));
+	}
+	return OK;
+    
+}
+
